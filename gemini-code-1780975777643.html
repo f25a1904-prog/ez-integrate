@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simpler Integration Calculator</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <script defer src="https://unpkg.com/mathlive"></script>
+    
+    <script src="https://unpkg.com/d3@7"></script>
+    <script src="https://unpkg.com/function-plot@1/dist/function-plot.js"></script>
+
+    <style>
+        /* MathLive custom styling to match a clean UI */
+        math-field {
+            font-size: 1.25rem;
+            padding: 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.375rem;
+            background: white;
+            width: 100%;
+            outline: none;
+        }
+        math-field:focus-within {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <header class="bg-white border-b border-slate-200 py-4 px-6 shadow-sm">
+        <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <span class="text-blue-600 text-2xl">∫</span> Definite Integration Calculator
+        </h1>
+    </header>
+
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl w-full mx-auto">
+        
+        <div class="lg:col-span-1 flex flex-col gap-6 bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+            
+            <div>
+                <label class="block text-sm font-semibold text-slate-600 mb-2">Function $f(x)$</label>
+                <math-field id="fx-input">x^2 - 2x</math-field>
+                <p class="text-xs text-slate-400 mt-1">Try inputs like: sin(x), x^3, sqrt(x)</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">Lower Limit ($a$)</label>
+                    <input type="number" id="limit-a" value="0" step="any" class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">Upper Limit ($b$)</label>
+                    <input type="number" id="limit-b" value="3" step="any" class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <hr class="border-slate-100">
+
+            <div class="bg-blue-50 border border-blue-100 rounded-lg p-4">
+                <span class="block text-xs font-bold text-blue-600 uppercase tracking-wider">Calculated Area</span>
+                <div class="text-2xl font-black text-blue-900 mt-1 flex items-baseline gap-1">
+                    <span id="result-display">0.00</span>
+                </div>
+                <div id="math-notation" class="text-sm text-blue-700 mt-2 italic">
+                    </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[450px]">
+            <div class="mb-2 flex justify-between items-center">
+                <span class="text-sm font-semibold text-slate-500">Visualized Definite Integral</span>
+                <button id="reset-zoom" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded transition">Reset View</button>
+            </div>
+            <div id="plot-container" class="w-full flex-1 min-h-[400px] flex items-center justify-center overflow-hidden">
+                </div>
+        </div>
+
+    </main>
+
+    <script>
+        // DOM Elements
+        const fxInput = document.getElementById('fx-input');
+        const inputA = document.getElementById('limit-a');
+        const inputB = document.getElementById('limit-b');
+        const resultDisplay = document.getElementById('result-display');
+        const mathNotation = document.getElementById('math-notation');
+        const resetZoomBtn = document.getElementById('reset-zoom');
+
+        // Global state for math parsing translation
+        // Maps MathLive output shorthand back to standard math syntax for function-plot
+        const cleanMathString = (str) => {
+            return str
+                .replace(/\\cdot/g, '*')
+                .replace(/\\times/g, '*')
+                .replace(/\\left\(/g, '(')
+                .replace(/\\right\)/g, ')')
+                .replace(/{/g, '(')
+                .replace(/}/g, ')')
+                .replace(/\\sin/g, 'sin')
+                .replace(/\\cos/g, 'cos')
+                .replace(/\\tan/g, 'tan')
+                .replace(/\\sqrt/g, 'sqrt')
+                .replace(/\\ln/g, 'log')
+                .replace(/\\pi/g, 'PI');
+        };
+
+        // Numerical Integration using Simpson's Rule
+        function integrate(fStr, a, b, n = 1000) {
+            try {
+                // Compile math function using standard JavaScript Math object
+                const f = new Function('x', `
+                    with (Math) {
+                        try {
+                            return ${fStr};
+                        } catch(e) {
+                            return NaN;
+                        }
+                    }
+                `);
+
+                if (isNaN(f(a)) || isNaN(f(b))) return null;
+
+                // Simpson's 1/3 Rule
+                if (n % 2 !== 0) n++; 
+                const h = (b - a) / n;
+                let sum = f(a) + f(b);
+
+                for (let i = 1; i < n; i++) {
+                    const x = a + i * h;
+                    sum += f(x) * (i % 2 === 0 ? 2 : 4);
+                }
+
+                const result = (h / 3) * sum;
+                return isNaN(result) ? null : result;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        // Render the Interactive Graph
+        function updateGraph(rawMathText, a, b) {
+            const container = document.getElementById('plot-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            // Compute standard text parsing for plotting package
+            const parsedMath = cleanMathString(rawMathText);
+
+            try {
+                functionPlot({
+                    target: '#plot-container',
+                    width: width,
+                    height: height,
+                    grid: true,
+                    yAxis: { domain: [-5, 5] },
+                    xAxis: { domain: [Math.min(a, -2) - 2, Math.max(b, 5) + 2] },
+                    data: [
+                        // The primary function line
+                        {
+                            fn: parsedMath,
+                            color: '#2563eb',
+                            graphType: 'polyline'
+                        },
+                        // The filled integral area block
+                        {
+                            fn: parsedMath,
+                            color: 'rgba(37, 99, 235, 0.15)',
+                            closed: true,
+                            range: [a, b],
+                            skipTip: true
+                        }
+                    ]
+                });
+            } catch (error) {
+                // If it fails to parse temporarily during typing, handle gracefully
+            }
+        }
+
+        // Main Update Loop
+        function calculateAndRender() {
+            const rawMathText = fxInput.value;
+            const a = parseFloat(inputA.value) || 0;
+            const b = parseFloat(inputB.value) || 0;
+
+            const parsedMath = cleanMathString(rawMathText);
+            const area = integrate(parsedMath, a, b);
+
+            // Update UI texts
+            if (area !== null) {
+                resultDisplay.textContent = area.toFixed(4);
+                mathNotation.textContent = `∫
